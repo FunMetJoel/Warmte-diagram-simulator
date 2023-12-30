@@ -5,8 +5,26 @@ from threading import Thread
 import math
 
 
-def rgb_to_hex(r, g, b):
-    return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+def rgb_to_hex(color: tuple[int, int, int]):
+    return '#{:02x}{:02x}{:02x}'.format(*color)
+
+def lerp_color(color1, color2, t):
+    """
+    Perform linear interpolation between two colors.
+
+    Parameters:
+    - color1: Tuple representing the RGB values of the first color.
+    - color2: Tuple representing the RGB values of the second color.
+    - t: Interpolation parameter (0 to 1).
+
+    Returns:
+    - Tuple representing the interpolated color.
+    """
+    r = int(color1[0] + (color2[0] - color1[0]) * t)
+    g = int(color1[1] + (color2[1] - color1[1]) * t)
+    b = int(color1[2] + (color2[2] - color1[2]) * t)
+
+    return (r, g, b)
 
 
 class Connector:
@@ -138,22 +156,25 @@ class SinusSignal(Component):
         self.logicOutput.value = math.sin(time.time() * 2 * math.pi / self.period)/2 + 0.5
 
 class Source(Component):
-    def __init__(self, name, x, y, temp, speed):
-        self.temp = temp
+    def __init__(self, name, x, y, maxTemp, speed):
+        self.maxTemp = maxTemp
         self.speed = speed
         super().__init__(
             name, 
             x, 
             y,
-            outputs = [Connector("OUT", temp, speed)],
+            outputs = [Connector("OUT", maxTemp, speed)],
             logicInput=LogicConnector()
         )
-        self.inspectable["temp"] = lambda: self.temp
+        self.inspectable["maxTemp"] = lambda: self.maxTemp
         self.inspectable["speed"] = lambda: self.speed
 
     def update(self):
         super().update()
-        self.outputs[0].temp = self.temp
+        if self.logicInput.connectedTo is not None:
+            self.outputs[0].temp = self.maxTemp * self.logicInput.value
+        else:
+            self.outputs[0].temp = self.maxTemp
         self.outputs[0].flowSpeed = self.speed
 
 class Printer(Component):
@@ -197,17 +218,42 @@ class Splitter(Component):
             x, 
             y,
             inputs = [Connector("IN")],
-            outputs = [Connector("OUT1"), Connector("OUT2")]
+            outputs = [Connector("OUT1"), Connector("OUT2")],
+            logicInput=LogicConnector()
         )
         self.inspectable["splitScalar"] = lambda: self.splitScalar
 
     def update(self):
         super().update()
         self.outputs[0].temp = self.inputs[0].temp
-        self.outputs[0].flowSpeed = self.inputs[0].flowSpeed * self.splitScalar
         self.outputs[1].temp = self.inputs[0].temp
-        self.outputs[1].flowSpeed = self.inputs[0].flowSpeed * (1 - self.splitScalar)
 
+        if self.logicInput.connectedTo == []:
+            self.outputs[0].flowSpeed = self.inputs[0].flowSpeed * self.splitScalar
+            self.outputs[1].flowSpeed = self.inputs[0].flowSpeed * (1 - self.splitScalar)
+        else:
+            self.outputs[0].flowSpeed = self.inputs[0].flowSpeed * self.logicInput.value
+            self.outputs[1].flowSpeed = self.inputs[0].flowSpeed * (1 - self.logicInput.value)
+
+class Merge(Component):
+    def __init__(self, name, x, y):
+        super().__init__(
+            name, 
+            x, 
+            y,
+            inputs = [Connector("IN1"), Connector("IN2")],
+            outputs = [Connector("OUT")]
+        )
+
+    def update(self):
+        super().update()
+        flowSpeed1 = self.inputs[0].flowSpeed
+        flowSpeed2 = self.inputs[1].flowSpeed
+        temp1 = self.inputs[0].temp
+        temp2 = self.inputs[1].temp
+
+        self.outputs[0].temp = (flowSpeed1 * temp1 + flowSpeed2 * temp2) / (flowSpeed1 + flowSpeed2)
+        self.outputs[0].flowSpeed = (self.inputs[0].flowSpeed + self.inputs[1].flowSpeed)
 
 # UI Code
 
@@ -222,6 +268,37 @@ class ConnectorApp:
         self.canvas = tk.Canvas(root, width=800, height=800, bg="white")
         self.canvas.pack()
 
+        self.menuBar = tk.Menu(root)
+        self.fileMenu = tk.Menu(self.menuBar, tearoff=0)
+        self.fileMenu.add_command(label="New", command=lambda: print("New"))
+        self.fileMenu.add_command(label="Open", command=lambda: print("Open"))
+        self.fileMenu.add_command(label="Save", command=lambda: print("Save"))
+        self.fileMenu.add_command(label="Save as...", command=lambda: print("Save as..."))
+        self.fileMenu.add_separator()
+        self.fileMenu.add_command(label="Exit", command=root.quit)
+        self.menuBar.add_cascade(label="File", menu=self.fileMenu)
+
+        self.addComponentMenu = tk.Menu(self.menuBar, tearoff=0)
+
+        self.basicComponentsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
+        self.basicComponentsMenu.add_command(label="Source", command=lambda: self.add_component("Source", 120, 70))
+        self.basicComponentsMenu.add_command(label="Printer", command=lambda: self.add_component("Printer", 120, 70))
+        self.basicComponentsMenu.add_command(label="Process", command=lambda: self.add_component("Process", 120, 70))
+        self.addComponentMenu.add_cascade(label="BasicComponents", menu=self.basicComponentsMenu)
+
+        self.verdelingsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
+        self.verdelingsMenu.add_command(label="Splitter", command=lambda: self.add_component("Splitter", 120, 70))
+        self.verdelingsMenu.add_command(label="Merge", command=lambda: self.add_component("Merge", 120, 70))
+        self.addComponentMenu.add_cascade(label="Verdeling", menu=self.verdelingsMenu)
+
+        self.logicComponentsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
+        self.logicComponentsMenu.add_command(label="SinusSignal", command=lambda: self.add_component("SinusSignal", 120, 70))
+        self.addComponentMenu.add_cascade(label="LogicComponents", menu=self.logicComponentsMenu)
+
+        self.menuBar.add_cascade(label="AddComponent", menu=self.addComponentMenu)
+
+        self.root.config(menu=self.menuBar)
+        
         self.menu = tk.Frame(root)
         self.menu.pack()
 
@@ -296,6 +373,8 @@ class ConnectorApp:
                 component = Splitter(name, x, y, 0.5)
             case "SinusSignal":
                 component = SinusSignal(name, x, y, 10)
+            case "Merge":
+                component = Merge(name, x, y)
             case _:
                 component = Component(name, x, y, inputs, outputs)
         self.components.append(component)
@@ -324,7 +403,7 @@ class ConnectorApp:
                 connectorY - 3,
                 connectorX + 3,
                 connectorY + 3,
-                fill="red"
+                fill="lightgreen"
             )
 
         for connector in component.connectors:
@@ -342,7 +421,7 @@ class ConnectorApp:
                 connectorY - 3,
                 connectorX + 3,
                 connectorY + 3,
-                fill="lightgreen"
+                fill="blue"
             )
 
     def connect_components(self, fromConnector: Connector, toConnector: Connector):
@@ -373,8 +452,8 @@ class ConnectorApp:
             connector2X, 
             connector2Y,
             arrow=tk.LAST,
-            fill=rgb_to_hex(0, max(min(round(100*temp/100), 255),0), max(min(round(255*temp/100),255),0)),
-            width=flowSpeed * 2,
+            fill=rgb_to_hex(lerp_color((255, 0, 0), (0, 0, 255), temp / 100)),
+            width=flowSpeed * 4,
             tags="connector"
         )
 
@@ -389,8 +468,8 @@ class ConnectorApp:
             connector2X, 
             connector2Y,
             arrow=tk.LAST,
-            fill=rgb_to_hex(round(value * 200 + 55), 0, 0),
-            width=2,
+            fill=rgb_to_hex(lerp_color((0, 255, 0), (0, 100, 0), value)),
+            width=4,
             tags="connector"
         )
 
@@ -487,6 +566,5 @@ class ConnectorApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = ConnectorApp(root)
-    app.add_component("SinusSignal", 120, 70)
 
     root.mainloop()
