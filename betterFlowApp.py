@@ -5,6 +5,7 @@ from threading import Thread
 import math
 import pickle
 
+lastTime = time.time()
 
 def rgb_to_hex(color: tuple[int, int, int]):
     return '#{:02x}{:02x}{:02x}'.format(*color)
@@ -29,7 +30,6 @@ def lerp_color(color1, color2, t):
 
 def clamp(num, min_value, max_value):
    return max(min(num, max_value), min_value)
-
 
 class Connector:
     def __init__(self, name, temp:float = 0.0, flowSpeed:float = 1.0):
@@ -261,6 +261,44 @@ class Process(Component):
             self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
+class Buffer(Component):
+    def __init__(self, name, x, y, maxTemp, capacity):
+        self.maxTemp = maxTemp
+        self.capacity = capacity
+        self.temp = 0
+        super().__init__(
+            name, 
+            x, 
+            y,
+            inputs = [Connector("IN")],
+            outputs = [Connector("OUT")],
+        )
+
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "maxTemp": self.maxTemp,
+            "capacity": self.capacity
+        })
+    
+    def editVariable(self, varName, value):
+        match varName:
+            case "maxTemp":
+                self.maxTemp = float(value)
+            case "capacity":
+                self.capacity = float(value)
+            case _:
+                super().editVariable(varName, value)
+
+    def update(self):
+        super().update()
+        
+        VolumeIn = self.inputs[0].flowSpeed * (time.time() - lastTime)
+        self.temp = (VolumeIn * self.inputs[0].temp + self.temp * self.capacity) / (VolumeIn + self.capacity)
+
+        self.outputs[0].temp = self.temp
+        self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
+
+
 class Splitter(Component):
     def __init__(self, name, x, y, splitScalar):
         self.splitScalar = splitScalar
@@ -345,6 +383,7 @@ class ConnectorApp:
         self.basicComponentsMenu.add_command(label="Source", command=lambda: self.add_component("Source", 120, 70))
         self.basicComponentsMenu.add_command(label="Printer", command=lambda: self.add_component("Printer", 120, 70))
         self.basicComponentsMenu.add_command(label="Process", command=lambda: self.add_component("Process", 120, 70))
+        self.basicComponentsMenu.add_command(label="Buffer", command=lambda: self.add_component("Buffer", 120, 70))
         self.addComponentMenu.add_cascade(label="BasicComponents", menu=self.basicComponentsMenu)
 
         self.verdelingsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
@@ -391,6 +430,8 @@ class ConnectorApp:
         self.canvas.bind("<B1-Motion>", self.on_drag)
 
         self.firstConnector = None
+
+        
 
     def stopLoop(self):
         self.stopCommand = True
@@ -457,6 +498,8 @@ class ConnectorApp:
                 component = SinusSignal(name, x, y, 10)
             case "Merge":
                 component = Merge(name, x, y)
+            case "Buffer":
+                component = Buffer(name, x, y, 100, 100)
             case _:
                 component = Component(name, x, y, inputs, outputs)
         self.components.append(component)
@@ -640,6 +683,7 @@ class ConnectorApp:
             for component in self.components:
                 component.update()
             self.redraw_connector()
+            lastTime = time.time()
             time.sleep(0.1)
         self.stopCommand = False
         
