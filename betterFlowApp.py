@@ -1,8 +1,9 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 import time
 from threading import Thread
 import math
+import pickle
 
 
 def rgb_to_hex(color: tuple[int, int, int]):
@@ -54,10 +55,17 @@ class Component:
         self.logicOutput = logicOutput
         self.logicConnectors = [logicInput, logicOutput]
 
-        self.inspectable = {
-            "name": lambda: self.name        
-        }
-    
+        self.inspectable = ["name"]
+
+    def getVariable(self, varName):
+        match varName:
+            case "name":
+                return str(self.name)
+            case "power":
+                return str(self.power)
+            case _:
+                print("No match")
+
     def editVariable(self, varName, value):
         match varName:
             case "name":
@@ -148,8 +156,17 @@ class SinusSignal(Component):
             y,
             logicOutput=LogicConnector()
         )
-        self.inspectable["amplitude"] = lambda: self.amplitude
-        self.inspectable["period"] = lambda: self.period
+        self.inspectable.append("amplitude")
+        self.inspectable.append("period")
+
+    def getVariable(self, varName):
+        match varName:
+            case "amplitude":
+                return self.amplitude
+            case "period":
+                return self.period
+            case _:
+                super().getVariable(varName)
 
     def update(self):
         super().update()
@@ -166,8 +183,17 @@ class Source(Component):
             outputs = [Connector("OUT", maxTemp, speed)],
             logicInput=LogicConnector()
         )
-        self.inspectable["maxTemp"] = lambda: self.maxTemp
-        self.inspectable["speed"] = lambda: self.speed
+        self.inspectable.append("maxTemp")
+        self.inspectable.append("speed")
+        
+    def getVariable(self, varName):
+        match varName:
+            case "maxTemp":
+                return self.maxTemp
+            case "speed":
+                return self.speed
+            case _:
+                super().getVariable(varName)
 
     def update(self):
         super().update()
@@ -204,7 +230,14 @@ class Process(Component):
             outputs = [Connector("OUT")],
             logicInput=LogicConnector()
         )
-        self.inspectable["power"] = lambda: self.power
+        self.inspectable.append("power")
+
+    def getVariable(self, varName):
+        match varName:
+            case "power":
+                return self.power
+            case _:
+                super().getVariable(varName)
 
     def update(self):
         super().update()
@@ -223,7 +256,14 @@ class Splitter(Component):
             outputs = [Connector("OUT1"), Connector("OUT2")],
             logicInput=LogicConnector()
         )
-        self.inspectable["splitScalar"] = lambda: self.splitScalar
+        self.inspectable.append("splitScalar")
+
+    def getVariable(self, varName):
+        match varName:
+            case "splitScalar":
+                return self.splitScalar
+            case _:
+                super().getVariable(varName)
 
     def update(self):
         super().update()
@@ -272,10 +312,9 @@ class ConnectorApp:
 
         self.menuBar = tk.Menu(root)
         self.fileMenu = tk.Menu(self.menuBar, tearoff=0)
-        self.fileMenu.add_command(label="New", command=lambda: print("New"))
-        self.fileMenu.add_command(label="Open", command=lambda: print("Open"))
-        self.fileMenu.add_command(label="Save", command=lambda: print("Save"))
-        self.fileMenu.add_command(label="Save as...", command=lambda: print("Save as..."))
+        self.fileMenu.add_command(label="New", command=self.clearFlow)
+        self.fileMenu.add_command(label="Open", command=self.loadFlow)
+        self.fileMenu.add_command(label="Save as...", command=self.saveFlow)
         self.fileMenu.add_separator()
         self.fileMenu.add_command(label="Exit", command=root.quit)
         self.menuBar.add_cascade(label="File", menu=self.fileMenu)
@@ -335,6 +374,25 @@ class ConnectorApp:
 
     def stopLoop(self):
         self.stopCommand = True
+
+    def clearFlow(self):
+        self.components = []
+        self.redraw_canvas()
+
+    def saveFlow(self):
+        file_path = filedialog.asksaveasfile(mode="wb", defaultextension=".flow", filetypes=[("HeatFlow files", "*.flow")], initialdir="flows", initialfile="myHeatFlow.flow")
+        if file_path is None:
+            return
+        pickle.dump(self.components, file_path)
+        file_path.close()
+
+    def loadFlow(self):
+        file_path = filedialog.askopenfile(mode="rb", defaultextension=".flow", filetypes=[("HeatFlow files", "*.flow")], initialdir="flows")
+        if file_path is None:
+            return
+        self.components = pickle.load(file_path)
+        file_path.close()
+        self.redraw_canvas()
     
     def openInspector(self, component):
         inspector = tk.Toplevel(self.root)
@@ -343,13 +401,14 @@ class ConnectorApp:
 
         variables = {}
 
-        for i, (key, value) in enumerate(component.inspectable.items()):
+        for i, key in enumerate(component.inspectable):
             ttk.Label(inspector, text=f"{key}:").place(x=10,y=10 + i*30)
             entery = ttk.Entry(
                 inspector, 
                 width=20, 
-                textvariable=str(value()),
             )
+            entery.delete(0, tk.END)
+            entery.insert(0, str(component.getVariable(key)))
             variables[key] = entery
             entery.place(x=50,y=10 + i*30)
 
