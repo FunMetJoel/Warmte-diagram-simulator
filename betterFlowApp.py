@@ -27,6 +27,9 @@ def lerp_color(color1, color2, t):
 
     return (r, g, b)
 
+def clamp(num, min_value, max_value):
+   return max(min(num, max_value), min_value)
+
 
 class Connector:
     def __init__(self, name, temp:float = 0.0, flowSpeed:float = 1.0):
@@ -55,16 +58,11 @@ class Component:
         self.logicOutput = logicOutput
         self.logicConnectors = [logicInput, logicOutput]
 
-        self.inspectable = ["name"]
-
-    def getVariable(self, varName):
-        match varName:
-            case "name":
-                return str(self.name)
-            case "power":
-                return str(self.power)
-            case _:
-                print("No match")
+    def inspect(self, childDict:dict = {}) -> dict[str, str]:
+        inspectables = {}
+        inspectables["name"] = self.name
+        inspectables.update(childDict)
+        return inspectables
 
     def editVariable(self, varName, value):
         match varName:
@@ -156,17 +154,18 @@ class SinusSignal(Component):
             y,
             logicOutput=LogicConnector()
         )
-        self.inspectable.append("amplitude")
-        self.inspectable.append("period")
 
-    def getVariable(self, varName):
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "period": self.period
+        })
+            
+    def editVariable(self, varName, value):
         match varName:
-            case "amplitude":
-                return self.amplitude
             case "period":
-                return self.period
+                self.period = float(value)
             case _:
-                super().getVariable(varName)
+                super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -183,17 +182,21 @@ class Source(Component):
             outputs = [Connector("OUT", maxTemp, speed)],
             logicInput=LogicConnector()
         )
-        self.inspectable.append("maxTemp")
-        self.inspectable.append("speed")
+
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "maxTemp": self.maxTemp,
+            "speed": self.speed
+        })
         
-    def getVariable(self, varName):
+    def editVariable(self, varName, value):
         match varName:
             case "maxTemp":
-                return self.maxTemp
+                self.maxTemp = float(value)
             case "speed":
-                return self.speed
+                self.speed = float(value)
             case _:
-                super().getVariable(varName)
+                super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -220,8 +223,9 @@ class Printer(Component):
         print(f"{self.name}:" ,self.inputs[0].temp, self.inputs[0].flowSpeed)
 
 class Process(Component):
-    def __init__(self, name, x, y, power):
+    def __init__(self, name, x, y, power, minTemp = 0):
         self.power = power
+        self.minTemp = minTemp
         super().__init__(
             name, 
             x, 
@@ -230,19 +234,31 @@ class Process(Component):
             outputs = [Connector("OUT")],
             logicInput=LogicConnector()
         )
-        self.inspectable.append("power")
 
-    def getVariable(self, varName):
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "power": self.power,
+            "minTemp": self.minTemp
+        })
+    
+    def editVariable(self, varName, value):
         match varName:
             case "power":
-                return self.power
+                self.power = float(value)
+            case "minTemp":
+                self.minTemp = float(value)
             case _:
-                super().getVariable(varName)
+                super().editVariable(varName, value)
+            
+    
 
     def update(self):
         super().update()
         scalar = 1 if self.logicInput.connectedTo == [] else self.logicInput.value
-        self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1)
+        if self.inputs[0].temp < self.minTemp:
+            self.outputs[0].temp = self.inputs[0].temp
+        else:
+            self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
 class Splitter(Component):
@@ -256,14 +272,18 @@ class Splitter(Component):
             outputs = [Connector("OUT1"), Connector("OUT2")],
             logicInput=LogicConnector()
         )
-        self.inspectable.append("splitScalar")
 
-    def getVariable(self, varName):
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "splitScalar": self.splitScalar
+        })
+    
+    def editVariable(self, varName, value):
         match varName:
             case "splitScalar":
-                return self.splitScalar
+                self.splitScalar = float(value)
             case _:
-                super().getVariable(varName)
+                super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -401,16 +421,17 @@ class ConnectorApp:
 
         variables = {}
 
-        for i, key in enumerate(component.inspectable):
+        for i, key in enumerate(dict(component.inspect())):
+            value = dict(component.inspect())[key]
             ttk.Label(inspector, text=f"{key}:").place(x=10,y=10 + i*30)
             entery = ttk.Entry(
                 inspector, 
                 width=20, 
             )
             entery.delete(0, tk.END)
-            entery.insert(0, str(component.getVariable(key)))
+            entery.insert(0, str(value))
             variables[key] = entery
-            entery.place(x=50,y=10 + i*30)
+            entery.place(x=90,y=10 + i*30)
 
         def updateVariables():
             for key, entery in variables.items():
@@ -513,7 +534,7 @@ class ConnectorApp:
             connector2X, 
             connector2Y,
             arrow=tk.LAST,
-            fill=rgb_to_hex(lerp_color((255, 0, 0), (0, 0, 255), temp / 100)),
+            fill=rgb_to_hex(lerp_color((0, 0, 255), (255, 0, 0), clamp(temp / 100, 0, 1))),
             width=flowSpeed * 4,
             tags="connector"
         )
