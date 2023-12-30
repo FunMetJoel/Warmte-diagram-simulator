@@ -1,28 +1,29 @@
 import tkinter as tk
 from tkinter import ttk
-from enum import Enum
 import time
 from threading import Thread
+import math
 
 
 def rgb_to_hex(r, g, b):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
-class EnergyType(Enum):
-    ELECTRICITY = 1
-    GAS = 2
-    HEAT = 3
 
 class Connector:
-    def __init__(self, name, energy:EnergyType = EnergyType.HEAT, value:float = 0.0, flowSpeed:float = 1.0):
+    def __init__(self, name, temp:float = 0.0, flowSpeed:float = 1.0):
         self.name = name
-        self.energy = energy
         self.connectedTo = None
-        self.value = value # V, J, graden
-        self.flowSpeed = flowSpeed # A, m3/s, L/s
+        self.temp = temp 
+        self.flowSpeed = flowSpeed
+    
+class LogicConnector:
+    def __init__(self, value:bool = 0.0):
+        self.connectedTo = []
+        self.value = value
+    
 
 class Component:
-    def __init__(self, name, x, y, inputs: list[Connector] = [], outputs: list[Connector] = []):
+    def __init__(self, name, x, y, inputs: list[Connector] = [], outputs: list[Connector] = [], logicInput: LogicConnector = None, logicOutput: LogicConnector = None):
         self.name = name
         self.x = x
         self.y = y
@@ -31,6 +32,9 @@ class Component:
         self.inputs = inputs
         self.outputs = outputs
         self.connectors = inputs + outputs
+        self.logicInput = logicInput
+        self.logicOutput = logicOutput
+        self.logicConnectors = [logicInput, logicOutput]
 
         self.inspectable = {
             "name": lambda: self.name        
@@ -42,8 +46,8 @@ class Component:
                 self.name = value
             case "power":
                 self.power = float(value)
-            case "value":
-                self.value = float(value)
+            case "temp":
+                self.temp = float(value)
             case "speed":
                 self.speed = float(value)
             case _:
@@ -69,13 +73,39 @@ class Component:
                 return connector
         return None
     
+    def getLogicConnectorPosition(self, connector: LogicConnector):
+        if connector not in [self.logicInput, self.logicOutput]:
+            return None
+
+        if connector == self.logicInput:
+            relativeX = -self.width / 2
+            relativeY = 0
+        elif connector == self.logicOutput:
+            relativeX = self.width / 2
+            relativeY = 0
+
+        return self.x + relativeX, self.y + relativeY
+    
+    def getLogicConnector(self, x, y):
+        for connector in self.logicConnectors:
+            connectorX, connectorY = self.getLogicConnectorPosition(connector)
+            if abs(connectorX - x) < 5 and abs(connectorY - y) < 5:
+                return connector
+        return None
+    
     def update(self):
         for input in self.inputs:
             if input.connectedTo is None:
                 continue
 
-            input.value = input.connectedTo.value
+            input.temp = input.connectedTo.temp
             input.flowSpeed = input.connectedTo.flowSpeed
+
+        if self.logicInput is not None:
+            if len(self.logicInput.connectedTo) == 0:
+                self.logicInput.value = 0
+                return
+            self.logicInput.value = self.logicInput.connectedTo[0].value
     
 # Temperature functions
 
@@ -91,22 +121,39 @@ def calculateDeltaT(
 
 # Flow Code
 
+class SinusSignal(Component):
+    def __init__(self, name, x, y, period):
+        self.period = period
+        super().__init__(
+            name, 
+            x, 
+            y,
+            logicOutput=LogicConnector()
+        )
+        self.inspectable["amplitude"] = lambda: self.amplitude
+        self.inspectable["period"] = lambda: self.period
+
+    def update(self):
+        super().update()
+        self.logicOutput.value = math.sin(time.time() * 2 * math.pi / self.period)/2 + 0.5
+
 class Source(Component):
-    def __init__(self, name, x, y, value, speed, energyType:EnergyType = EnergyType.HEAT):
-        self.value = value
+    def __init__(self, name, x, y, temp, speed):
+        self.temp = temp
         self.speed = speed
         super().__init__(
             name, 
             x, 
             y,
-            outputs = [Connector("OUT", energyType, value, speed)]
+            outputs = [Connector("OUT", temp, speed)],
+            logicInput=LogicConnector()
         )
-        self.inspectable["value"] = lambda: self.value
+        self.inspectable["temp"] = lambda: self.temp
         self.inspectable["speed"] = lambda: self.speed
 
     def update(self):
         super().update()
-        self.outputs[0].value = self.value
+        self.outputs[0].temp = self.temp
         self.outputs[0].flowSpeed = self.speed
 
 class Printer(Component):
@@ -121,9 +168,9 @@ class Printer(Component):
 
     def update(self):
         super().update()
-        self.outputs[0].value = self.inputs[0].value
+        self.outputs[0].temp = self.inputs[0].temp
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
-        print(f"{self.name}:" ,self.inputs[0].value, self.inputs[0].flowSpeed)
+        print(f"{self.name}:" ,self.inputs[0].temp, self.inputs[0].flowSpeed)
 
 class Process(Component):
     def __init__(self, name, x, y, power):
@@ -139,7 +186,7 @@ class Process(Component):
 
     def update(self):
         super().update()
-        self.outputs[0].value = self.inputs[0].value + calculateDeltaT(self.power, 1)
+        self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power, 1)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
 class Splitter(Component):
@@ -156,9 +203,9 @@ class Splitter(Component):
 
     def update(self):
         super().update()
-        self.outputs[0].value = self.inputs[0].value
+        self.outputs[0].temp = self.inputs[0].temp
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed * self.splitScalar
-        self.outputs[1].value = self.inputs[0].value
+        self.outputs[1].temp = self.inputs[0].temp
         self.outputs[1].flowSpeed = self.inputs[0].flowSpeed * (1 - self.splitScalar)
 
 
@@ -238,16 +285,19 @@ class ConnectorApp:
 
 
     def add_component(self, name, x, y, inputs: list[Connector] = [Connector("IN")], outputs: list[Connector] = [Connector("OUT")]):
-        if name == "Source":
-            component = Source(name, x, y, 100, 1)
-        elif name == "Printer":
-            component = Printer(name, x, y)
-        elif name == "Process":
-            component = Process(name, x, y, 100)
-        elif name == "Splitter":
-            component = Splitter(name, x, y, 0.5)
-        else:
-            component = Component(name, x, y, inputs, outputs)
+        match name:
+            case "Source":
+                component = Source(name, x, y, 100, 1)
+            case "Printer":
+                component = Printer(name, x, y)
+            case "Process":
+                component = Process(name, x, y, 100)
+            case "Splitter":
+                component = Splitter(name, x, y, 0.5)
+            case "SinusSignal":
+                component = SinusSignal(name, x, y, 10)
+            case _:
+                component = Component(name, x, y, inputs, outputs)
         self.components.append(component)
         self.draw_component(component)
 
@@ -263,6 +313,19 @@ class ConnectorApp:
             component.x, component.y,
             text=component.name
         )
+
+        for logicConnector in component.logicConnectors:
+            if logicConnector is None:
+                continue
+            connectorX, connectorY = component.getLogicConnectorPosition(logicConnector)
+
+            self.canvas.create_oval(
+                connectorX - 3,
+                connectorY - 3,
+                connectorX + 3,
+                connectorY + 3,
+                fill="red"
+            )
 
         for connector in component.connectors:
             connectorX, connectorY = component.getConnectorPosition(connector)
@@ -283,6 +346,16 @@ class ConnectorApp:
             )
 
     def connect_components(self, fromConnector: Connector, toConnector: Connector):
+        if isinstance(fromConnector, LogicConnector):
+            if fromConnector in toConnector.connectedTo:
+                toConnector.connectedTo.remove(fromConnector)
+                fromConnector.connectedTo.remove(toConnector)
+            else:
+                toConnector.connectedTo.append(fromConnector)
+                fromConnector.connectedTo.append(toConnector)
+            self.draw_logic_connector([fromConnector, toConnector])
+            return
+        
         fromConnector.connectedTo = toConnector
         toConnector.connectedTo = fromConnector
         self.redraw_canvas()
@@ -292,6 +365,22 @@ class ConnectorApp:
         connector1X, connector1Y = self.getConnectorPosition(connectors[0])
         connector2X, connector2Y = self.getConnectorPosition(connectors[1])
         flowSpeed = connectors[0].flowSpeed
+        temp = connectors[0].temp
+
+        self.canvas.create_line(
+            connector1X, 
+            connector1Y, 
+            connector2X, 
+            connector2Y,
+            arrow=tk.LAST,
+            fill=rgb_to_hex(0, max(min(round(100*temp/100), 255),0), max(min(round(255*temp/100),255),0)),
+            width=flowSpeed * 2,
+            tags="connector"
+        )
+
+    def draw_logic_connector(self, connectors:list[LogicConnector]):
+        connector1X, connector1Y = self.getConnectorPosition(connectors[0])
+        connector2X, connector2Y = self.getConnectorPosition(connectors[1])
         value = connectors[0].value
 
         self.canvas.create_line(
@@ -300,8 +389,8 @@ class ConnectorApp:
             connector2X, 
             connector2Y,
             arrow=tk.LAST,
-            fill=rgb_to_hex(0, max(min(round(100*value/100), 255),0), max(min(round(255*value/100),255),0)),
-            width=flowSpeed * 2,
+            fill=rgb_to_hex(round(value * 200 + 55), 0, 0),
+            width=2,
             tags="connector"
         )
 
@@ -321,6 +410,8 @@ class ConnectorApp:
     def getConnector(self, x, y):
         for component in self.components:
             connector = component.getConnector(x, y)
+            if connector is None:
+                connector = component.getLogicConnector(x, y)
             if connector is not None:
                 return connector
         return None
@@ -337,6 +428,8 @@ class ConnectorApp:
     def getConnectorPosition(self, connector: Connector):
         for component in self.components:
             connectorPosition = component.getConnectorPosition(connector)
+            if connectorPosition is None:
+                connectorPosition = component.getLogicConnectorPosition(connector)
             if connectorPosition is not None:
                 return connectorPosition
         return None
@@ -356,6 +449,10 @@ class ConnectorApp:
         for component in self.components:
             self.draw_component(component)
 
+            if component.logicOutput is not None:
+                for logicConnector in component.logicOutput.connectedTo:
+                    self.draw_logic_connector([component.logicOutput, logicConnector])
+
             for output in component.outputs:
                 if output.connectedTo is None:
                     continue
@@ -366,6 +463,10 @@ class ConnectorApp:
         self.canvas.addtag_withtag("old", "connector")
 
         for component in self.components:
+            if component.logicOutput is not None:
+                for logicConnector in component.logicOutput.connectedTo:
+                    self.draw_logic_connector([component.logicOutput, logicConnector])
+
             for output in component.outputs:
                 if output.connectedTo is None:
                     continue
@@ -386,5 +487,6 @@ class ConnectorApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = ConnectorApp(root)
+    app.add_component("SinusSignal", 120, 70)
 
     root.mainloop()
