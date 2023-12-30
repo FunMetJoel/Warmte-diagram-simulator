@@ -201,13 +201,15 @@ class Process(Component):
             x, 
             y,
             inputs = [Connector("IN")],
-            outputs = [Connector("OUT")]
+            outputs = [Connector("OUT")],
+            logicInput=LogicConnector()
         )
         self.inspectable["power"] = lambda: self.power
 
     def update(self):
         super().update()
-        self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power, 1)
+        scalar = 1 if self.logicInput.connectedTo == [] else self.logicInput.value
+        self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
 class Splitter(Component):
