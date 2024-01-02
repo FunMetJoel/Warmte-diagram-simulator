@@ -4,6 +4,11 @@ import time
 from threading import Thread
 import math
 import pickle
+import random
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import matplotlib.animation as animation
 
 lastTime = time.time()
 
@@ -222,6 +227,23 @@ class Printer(Component):
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
         print(f"{self.name}:" ,self.inputs[0].temp, self.inputs[0].flowSpeed)
 
+class Plotter(Component):
+    def __init__(self, name, x, y):
+        self.data = []
+        super().__init__(
+            name, 
+            x, 
+            y,
+            inputs = [Connector("IN")],
+            outputs = [Connector("OUT")]
+        )
+
+    def update(self):
+        super().update()
+        self.outputs[0].temp = self.inputs[0].temp
+        self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
+        self.data.append(self.inputs[0].temp)
+
 class Process(Component):
     def __init__(self, name, x, y, power, minTemp = 0):
         self.power = power
@@ -362,11 +384,13 @@ class ConnectorApp:
         self.root = root
         self.root.title("Energy Flow Diagram")
 
+        self.plotter = MatPlotLibPlotter(self.root)
+
         self.components = []
         self.selected_output = None
 
-        self.canvas = tk.Canvas(root, width=800, height=800, bg="white")
-        self.canvas.pack()
+        self.canvas = tk.Canvas(root, bg="white", width=800, height=600)
+        self.canvas.pack(fill="both", expand=True)
 
         self.menuBar = tk.Menu(root)
         self.fileMenu = tk.Menu(self.menuBar, tearoff=0)
@@ -382,6 +406,7 @@ class ConnectorApp:
         self.basicComponentsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
         self.basicComponentsMenu.add_command(label="Source", command=lambda: self.add_component("Source", 120, 70))
         self.basicComponentsMenu.add_command(label="Printer", command=lambda: self.add_component("Printer", 120, 70))
+        self.basicComponentsMenu.add_command(label="Plotter", command=lambda: self.add_component("Plotter", 120, 70))
         self.basicComponentsMenu.add_command(label="Process", command=lambda: self.add_component("Process", 120, 70))
         self.basicComponentsMenu.add_command(label="Buffer", command=lambda: self.add_component("Buffer", 120, 70))
         self.addComponentMenu.add_cascade(label="BasicComponents", menu=self.basicComponentsMenu)
@@ -490,6 +515,8 @@ class ConnectorApp:
                 component = Source(name, x, y, 100, 1)
             case "Printer":
                 component = Printer(name, x, y)
+            case "Plotter":
+                component = Plotter(name, x, y)
             case "Process":
                 component = Process(name, x, y, 100)
             case "Splitter":
@@ -678,19 +705,61 @@ class ConnectorApp:
                 self.draw_connector([output, output.connectedTo])
         self.canvas.delete("old")
 
+    def getPlotterData(self):
+        for component in self.components:
+            if isinstance(component, Plotter):
+                self.plotter.addData(component.name, component.inputs[0].temp)
+
     def update(self):
+        self.plotter.openPlotWindow()
         while not self.stopCommand:
             for component in self.components:
                 component.update()
             self.redraw_connector()
             lastTime = time.time()
+            self.getPlotterData()
+            self.plotter.updatePlot()
             time.sleep(0.1)
+        self.plotter.clearData()
         self.stopCommand = False
-        
-        
+
+class MatPlotLibPlotter:
+    def __init__(self, root) -> None:
+        self.plotData = {}
+        self.root = root
+        self.fig, self.ax = plt.subplots()
+
+    def addData(self, dataName, new_number):
+        if dataName not in self.plotData:
+            self.plotData[dataName] = []
+        self.plotData[dataName].append(new_number)
+
+    def openPlotWindow(self):
+        plotWindow = tk.Toplevel(self.root)
+        plotWindow.title("Plot")
+        frame = tk.Frame(plotWindow)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
+        self.canvas.get_tk_widget().pack()
+        toolbar = NavigationToolbar2Tk(self.canvas, frame, pack_toolbar=False)
+        toolbar.update()
+        toolbar.pack()
+        frame.pack()
+
+    def clearData(self):
+        self.plotData = {}
+
+    def updatePlot(self):
+        self.ax.clear()
+        for dataName, data in self.plotData.items():
+            self.ax.plot(data, label=dataName)
+        self.ax.legend(loc="upper left")
+        if self.canvas is None:
+            return
+        self.canvas.draw()
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = ConnectorApp(root)
 
     root.mainloop()
+    app.stopLoop()
