@@ -4,7 +4,6 @@ import time
 from threading import Thread
 import math
 import pickle
-import random
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -47,7 +46,6 @@ class LogicConnector:
     def __init__(self, value:bool = 0.0):
         self.connectedTo = []
         self.value = value
-    
 
 class Component:
     def __init__(self, name, x, y, inputs: list[Connector] = [], outputs: list[Connector] = [], logicInput: LogicConnector = None, logicOutput: LogicConnector = None):
@@ -433,22 +431,19 @@ class ConnectorApp:
         self.startButton.grid(row=0, column=0)
 
         self.stopButton = ttk.Button(self.menu, text="Stop", command=self.stopLoop )
-        self.stopButton.grid(row=0, column=6)
-
-        self.addComponent = ttk.Button(self.menu, text="Add Component", command=lambda: self.add_component("Component", 120, 70))
-        self.addComponent.grid(row=0, column=1)
+        self.stopButton.grid(row=0, column=5)
 
         self.addSource = ttk.Button(self.menu, text="Add Source", command=lambda: self.add_component("Source", 120, 70))
-        self.addSource.grid(row=0, column=2)
+        self.addSource.grid(row=0, column=1)
 
         self.addPrinter = ttk.Button(self.menu, text="Add Printer", command=lambda: self.add_component("Printer", 120, 70))
-        self.addPrinter.grid(row=0, column=3)
+        self.addPrinter.grid(row=0, column=2)
 
         self.addProcess = ttk.Button(self.menu, text="Add Process", command=lambda: self.add_component("Process", 120, 70))
-        self.addProcess.grid(row=0, column=4)
+        self.addProcess.grid(row=0, column=3)
 
         self.addProcess = ttk.Button(self.menu, text="Add Splitter", command=lambda: self.add_component("Splitter", 120, 70))
-        self.addProcess.grid(row=0, column=5)
+        self.addProcess.grid(row=0, column=4)
 
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<Button-3>", self.on_canvas_right_click)
@@ -578,6 +573,7 @@ class ConnectorApp:
 
     def connect_components(self, fromConnector: Connector, toConnector: Connector):
         if isinstance(fromConnector, LogicConnector):
+            
             if fromConnector in toConnector.connectedTo:
                 toConnector.connectedTo.remove(fromConnector)
                 fromConnector.connectedTo.remove(toConnector)
@@ -587,10 +583,19 @@ class ConnectorApp:
             self.draw_logic_connector([fromConnector, toConnector])
             return
         
+        if fromConnector.connectedTo is not None:
+            self.disconnect_components(fromConnector)
+        if toConnector.connectedTo is not None:
+            self.disconnect_components(toConnector)
+            
         fromConnector.connectedTo = toConnector
         toConnector.connectedTo = fromConnector
         self.redraw_canvas()
 
+    def disconnect_components(self, connector: Connector):
+        connector.connectedTo.connectedTo = None
+        connector.connectedTo = None
+        self.redraw_canvas()
 
     def draw_connector(self, connectors:list[Connector]):
         connector1X, connector1Y = self.getConnectorPosition(connectors[0])
