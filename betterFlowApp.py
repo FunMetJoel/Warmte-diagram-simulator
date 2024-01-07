@@ -146,6 +146,18 @@ def calculateDeltaT(
     dT = (Power / sortWarmte) / stroomSnelheid
     return dT
 
+def calculateWarmteVerlies(
+        T: float,
+        Oppervlakte: float = 100,
+        geleiding: float = 0.0005):
+    """
+    Calculates the warmte verlies for a given delta T and stroom snelheid
+    """
+    deltaT = T - 20
+    warmteVerlies = Oppervlakte * geleiding * deltaT
+    return warmteVerlies
+
+
 # Flow Code
 
 class SinusSignal(Component):
@@ -173,6 +185,97 @@ class SinusSignal(Component):
     def update(self):
         super().update()
         self.logicOutput.value = math.sin(time.time() * 2 * math.pi / self.period)/2 + 0.5
+
+class LogicClamp(Component):
+    def __init__(self, name, x, y, min, max):
+        self.min = min
+        self.max = max
+        super().__init__(
+            name, 
+            x, 
+            y,
+            logicInput=LogicConnector(),
+            logicOutput=LogicConnector()
+        )
+
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "min": self.min,
+            "max": self.max
+        })
+            
+    def editVariable(self, varName, value):
+        match varName:
+            case "min":
+                self.min = float(value)
+            case "max":
+                self.max = float(value)
+            case _:
+                super().editVariable(varName, value)
+
+    def update(self):
+        super().update()
+        if self.logicInput.connectedTo is not None:
+            self.logicOutput.value = clamp(self.logicInput.value, self.min, self.max)
+        else:
+            self.logicOutput.value = 0
+
+class LogicInverter(Component):
+    def __init__(self, name, x, y):
+        super().__init__(
+            name, 
+            x, 
+            y,
+            logicInput=LogicConnector(),
+            logicOutput=LogicConnector()
+        )
+
+    def update(self):
+        super().update()
+        if self.logicInput.connectedTo is not None:
+            self.logicOutput.value = 1 - self.logicInput.value
+        else:
+            self.logicOutput.value = 0
+
+class Sensor(Component):
+    def __init__(self, name, x, y, compareFunction:str):
+        self.compareFunction = compareFunction
+        super().__init__(
+            name, 
+            x, 
+            y,
+            inputs = [Connector("IN")],
+            outputs=[Connector("OUT")],
+            logicOutput=LogicConnector()
+        )
+
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "compareFunction": self.compareFunction
+        })
+    
+    def editVariable(self, varName, value):
+        match varName:
+            case "compareFunction":
+                self.compareFunction = value
+            case _:
+                super().editVariable(varName, value)
+
+    def update(self):
+        super().update()
+        self.outputs[0].temp = self.inputs[0].temp
+        self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
+
+        temp = self.inputs[0].temp
+        flowSpeed = self.inputs[0].flowSpeed
+        output = eval(self.compareFunction, {"temp": temp, "flowSpeed": flowSpeed})
+        if output > 1:
+            output = 1
+        elif output < 0:
+            output = 0
+
+        self.logicOutput.value = output
+
 
 class Source(Component):
     def __init__(self, name, x, y, maxTemp, speed):
@@ -203,8 +306,9 @@ class Source(Component):
 
     def update(self):
         super().update()
+        scalar = 1 if self.logicInput.connectedTo == [] else self.logicInput.value
         if self.logicInput.connectedTo is not None:
-            self.outputs[0].temp = self.maxTemp * self.logicInput.value
+            self.outputs[0].temp = self.maxTemp * scalar
         else:
             self.outputs[0].temp = self.maxTemp
         self.outputs[0].flowSpeed = self.speed
@@ -276,9 +380,9 @@ class Process(Component):
         super().update()
         scalar = 1 if self.logicInput.connectedTo == [] else self.logicInput.value
         if self.inputs[0].temp < self.minTemp:
-            self.outputs[0].temp = self.inputs[0].temp
+            self.outputs[0].temp = self.inputs[0].temp - calculateWarmteVerlies(self.inputs[0].temp)
         else:
-            self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1)
+            self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1) - calculateWarmteVerlies(self.inputs[0].temp)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
 class Buffer(Component):
@@ -315,7 +419,7 @@ class Buffer(Component):
         VolumeIn = self.inputs[0].flowSpeed * (time.time() - lastTime)
         self.temp = (VolumeIn * self.inputs[0].temp + self.temp * self.capacity) / (VolumeIn + self.capacity)
 
-        self.outputs[0].temp = self.temp
+        self.outputs[0].temp = self.temp - calculateWarmteVerlies(self.temp)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
 
@@ -345,8 +449,8 @@ class Splitter(Component):
 
     def update(self):
         super().update()
-        self.outputs[0].temp = self.inputs[0].temp
-        self.outputs[1].temp = self.inputs[0].temp
+        self.outputs[0].temp = self.inputs[0].temp - calculateWarmteVerlies(self.inputs[0].temp)
+        self.outputs[1].temp = self.inputs[0].temp - calculateWarmteVerlies(self.inputs[0].temp)
 
         if self.logicInput.connectedTo == []:
             self.outputs[0].flowSpeed = self.inputs[0].flowSpeed * self.splitScalar
@@ -373,6 +477,7 @@ class Merge(Component):
         temp2 = self.inputs[1].temp
 
         self.outputs[0].temp = (flowSpeed1 * temp1 + flowSpeed2 * temp2) / (flowSpeed1 + flowSpeed2)
+        self.outputs[0].temp = self.outputs[0].temp - calculateWarmteVerlies(self.outputs[0].temp)
         self.outputs[0].flowSpeed = (self.inputs[0].flowSpeed + self.inputs[1].flowSpeed)
 
 # UI Code
@@ -416,6 +521,9 @@ class ConnectorApp:
 
         self.logicComponentsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
         self.logicComponentsMenu.add_command(label="SinusSignal", command=lambda: self.add_component("SinusSignal", 120, 70))
+        self.logicComponentsMenu.add_command(label="LogicClamp", command=lambda: self.add_component("LogicClamp", 120, 70))
+        self.logicComponentsMenu.add_command(label="LogicInverter", command=lambda: self.add_component("LogicInverter", 120, 70))
+        self.logicComponentsMenu.add_command(label="Sensor", command=lambda: self.add_component("Sensor", 120, 70))
         self.addComponentMenu.add_cascade(label="LogicComponents", menu=self.logicComponentsMenu)
 
         self.menuBar.add_cascade(label="AddComponent", menu=self.addComponentMenu)
@@ -518,6 +626,12 @@ class ConnectorApp:
                 component = Splitter(name, x, y, 0.5)
             case "SinusSignal":
                 component = SinusSignal(name, x, y, 10)
+            case "LogicClamp":
+                component = LogicClamp(name, x, y, 0, 1)
+            case "LogicInverter":
+                component = LogicInverter(name, x, y)
+            case "Sensor":
+                component = Sensor(name, x, y, "temp / 100")
             case "Merge":
                 component = Merge(name, x, y)
             case "Buffer":
@@ -609,7 +723,7 @@ class ConnectorApp:
             connector2X, 
             connector2Y,
             arrow=tk.LAST,
-            fill=rgb_to_hex(lerp_color((0, 0, 255), (255, 0, 0), clamp(temp / 100, 0, 1))),
+            fill=rgb_to_hex(lerp_color((0, 0, 255), (255, 0, 0), clamp(float(temp / 100), 0, 1))),
             width=flowSpeed * 4,
             tags="connector"
         )
@@ -724,7 +838,7 @@ class ConnectorApp:
             lastTime = time.time()
             self.getPlotterData()
             self.plotter.updatePlot()
-            time.sleep(0.1)
+            time.sleep(0.001)
         self.plotter.clearData()
         self.stopCommand = False
 
