@@ -347,9 +347,10 @@ class Plotter(Component):
         self.data.append(self.inputs[0].temp)
 
 class Process(Component):
-    def __init__(self, name, x, y, power, minTemp = 0):
+    def __init__(self, name, x, y, power, minTemp = 0, maxTemp = 100):
         self.power = power
         self.minTemp = minTemp
+        self.maxTemp = maxTemp
         super().__init__(
             name, 
             x, 
@@ -362,7 +363,8 @@ class Process(Component):
     def inspect(self) -> dict[str, str]:
         return super().inspect({
             "power": self.power,
-            "minTemp": self.minTemp
+            "minTemp": self.minTemp,
+            "maxTemp": self.maxTemp
         })
     
     def editVariable(self, varName, value):
@@ -371,16 +373,18 @@ class Process(Component):
                 self.power = float(value)
             case "minTemp":
                 self.minTemp = float(value)
+            case "maxTemp":
+                self.maxTemp = float(value)
             case _:
                 super().editVariable(varName, value)
-            
-    
 
     def update(self):
         super().update()
         scalar = 1 if self.logicInput.connectedTo == [] else self.logicInput.value
         if self.inputs[0].temp < self.minTemp:
             self.outputs[0].temp = self.inputs[0].temp - calculateWarmteVerlies(self.inputs[0].temp)
+        elif self.inputs[0].temp > self.maxTemp:
+            self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1) - calculateWarmteVerlies(self.inputs[0].temp) - (self.inputs[0].temp - self.maxTemp)
         else:
             self.outputs[0].temp = self.inputs[0].temp + calculateDeltaT(self.power * scalar, 1) - calculateWarmteVerlies(self.inputs[0].temp)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
