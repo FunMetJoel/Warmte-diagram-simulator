@@ -603,6 +603,21 @@ class ConnectorApp:
                 component.editVariable(key, entery.get())
             self.redraw_canvas()
 
+        def deleteComponent():
+            for connector in component.connectors:
+                if connector.connectedTo is not None:
+                    self.disconnect_components(connector)
+            for logicConnector in component.logicConnectors:
+                if logicConnector is None:
+                    continue
+                for connectedTo in logicConnector.connectedTo:
+                    self.disconnect_components(connectedTo)
+            
+            self.components.remove(component)
+            self.redraw_canvas()
+
+        ttk.Button(inspector, text="Delete", command=deleteComponent).place(anchor=tk.SE, x=740, y=180)
+
         ttk.Button(inspector, text="Update", command=updateVariables).place(anchor=tk.SE, x=740, y=210)
 
         ttk.Button(inspector, text="Close", command=inspector.destroy).place(anchor=tk.SE, x=740, y=240)
