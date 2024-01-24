@@ -52,6 +52,9 @@ class Component:
         self.name = name
         self.x = x
         self.y = y
+        self.colorR = 200
+        self.colorG = 200
+        self.colorB = 255
         self.width = 120
         self.height = 50
         self.inputs = inputs
@@ -64,6 +67,10 @@ class Component:
     def inspect(self, childDict:dict = {}) -> dict[str, str]:
         inspectables = {}
         inspectables["name"] = self.name
+        inspectables["colorR"] = self.colorR
+        inspectables["colorG"] = self.colorG
+        inspectables["colorB"] = self.colorB
+
         inspectables.update(childDict)
         return inspectables
 
@@ -76,6 +83,12 @@ class Component:
             self.temp = float(value)
         elif varName == "speed":
             self.speed = float(value)
+        elif varName == "colorR":
+            self.colorR = int(value)
+        elif varName == "colorG":
+            self.colorG = int(value)
+        elif varName == "colorB":
+            self.colorB = int(value)
         else:
             print("No match")
 
@@ -657,7 +670,7 @@ class ConnectorApp:
         self.canvas.create_rectangle(
             component.x - component.width / 2, component.y - component.height / 2,
             component.x + component.width / 2, component.y + component.height / 2,
-            fill="lightblue"
+            fill=rgb_to_hex((component.colorR, component.colorG, component.colorB))
         )
         self.canvas.create_text(
             component.x, component.y,
