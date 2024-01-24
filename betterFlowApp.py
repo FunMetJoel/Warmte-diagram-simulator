@@ -68,17 +68,16 @@ class Component:
         return inspectables
 
     def editVariable(self, varName, value):
-        match varName:
-            case "name":
-                self.name = value
-            case "power":
-                self.power = float(value)
-            case "temp":
-                self.temp = float(value)
-            case "speed":
-                self.speed = float(value)
-            case _:
-                print("No match")
+        if varName == "name":
+            self.name = value
+        elif varName == "power":
+            self.power = float(value)
+        elif varName == "temp":
+            self.temp = float(value)
+        elif varName == "speed":
+            self.speed = float(value)
+        else:
+            print("No match")
 
     def getConnectorPosition(self, connector: Connector):
         if connector not in self.connectors:
@@ -176,11 +175,10 @@ class SinusSignal(Component):
         })
             
     def editVariable(self, varName, value):
-        match varName:
-            case "period":
-                self.period = float(value)
-            case _:
-                super().editVariable(varName, value)
+        if varName == "period":
+            self.period = float(value)
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -205,13 +203,12 @@ class LogicClamp(Component):
         })
             
     def editVariable(self, varName, value):
-        match varName:
-            case "min":
-                self.min = float(value)
-            case "max":
-                self.max = float(value)
-            case _:
-                super().editVariable(varName, value)
+        if varName == "min":
+            self.min = float(value)
+        elif varName == "max":
+            self.max = float(value)
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -255,11 +252,10 @@ class Sensor(Component):
         })
     
     def editVariable(self, varName, value):
-        match varName:
-            case "compareFunction":
-                self.compareFunction = value
-            case _:
-                super().editVariable(varName, value)
+        if varName == "compareFunction":
+            self.compareFunction = value
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -296,13 +292,12 @@ class Source(Component):
         })
         
     def editVariable(self, varName, value):
-        match varName:
-            case "maxTemp":
-                self.maxTemp = float(value)
-            case "speed":
-                self.speed = float(value)
-            case _:
-                super().editVariable(varName, value)
+        if varName == "maxTemp":
+            self.maxTemp = float(value)
+        elif varName == "speed":
+            self.speed = float(value)
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -368,15 +363,14 @@ class Process(Component):
         })
     
     def editVariable(self, varName, value):
-        match varName:
-            case "power":
-                self.power = float(value)
-            case "minTemp":
-                self.minTemp = float(value)
-            case "maxTemp":
-                self.maxTemp = float(value)
-            case _:
-                super().editVariable(varName, value)
+        if varName == "power":
+            self.power = float(value)
+        elif varName == "minTemp":
+            self.minTemp = float(value)
+        elif varName == "maxTemp":
+            self.maxTemp = float(value)
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -409,13 +403,12 @@ class Buffer(Component):
         })
     
     def editVariable(self, varName, value):
-        match varName:
-            case "maxTemp":
-                self.maxTemp = float(value)
-            case "capacity":
-                self.capacity = float(value)
-            case _:
-                super().editVariable(varName, value)
+        if varName == "maxTemp":
+            self.maxTemp = float(value)
+        elif varName == "capacity":
+            self.capacity = float(value)
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -445,11 +438,10 @@ class Splitter(Component):
         })
     
     def editVariable(self, varName, value):
-        match varName:
-            case "splitScalar":
-                self.splitScalar = float(value)
-            case _:
-                super().editVariable(varName, value)
+        if varName == "splitScalar":
+            self.splitScalar = float(value)
+        else:
+            super().editVariable(varName, value)
 
     def update(self):
         super().update()
@@ -617,31 +609,30 @@ class ConnectorApp:
 
 
     def add_component(self, name, x, y, inputs: list[Connector] = [Connector("IN")], outputs: list[Connector] = [Connector("OUT")]):
-        match name:
-            case "Source":
-                component = Source(name, x, y, 100, 1)
-            case "Printer":
-                component = Printer(name, x, y)
-            case "Plotter":
-                component = Plotter(name, x, y)
-            case "Process":
-                component = Process(name, x, y, 100)
-            case "Splitter":
-                component = Splitter(name, x, y, 0.5)
-            case "SinusSignal":
-                component = SinusSignal(name, x, y, 10)
-            case "LogicClamp":
-                component = LogicClamp(name, x, y, 0, 1)
-            case "LogicInverter":
-                component = LogicInverter(name, x, y)
-            case "Sensor":
-                component = Sensor(name, x, y, "temp / 100")
-            case "Merge":
-                component = Merge(name, x, y)
-            case "Buffer":
-                component = Buffer(name, x, y, 100, 100)
-            case _:
-                component = Component(name, x, y, inputs, outputs)
+        if name == "Source":
+            component = Source(name, x, y, 100, 1)
+        elif name == "Printer":
+            component = Printer(name, x, y)
+        elif name == "Plotter":
+            component = Plotter(name, x, y)
+        elif name == "Process":
+            component = Process(name, x, y, 100)
+        elif name == "Splitter":
+            component = Splitter(name, x, y, 0.5)
+        elif name == "SinusSignal":
+            component = SinusSignal(name, x, y, 10)
+        elif name == "LogicClamp":
+            component = LogicClamp(name, x, y, 0, 1)
+        elif name == "LogicInverter":
+            component = LogicInverter(name, x, y)
+        elif name == "Sensor":
+            component = Sensor(name, x, y, "temp / 100")
+        elif name == "Merge":
+            component = Merge(name, x, y)
+        elif name == "Buffer":
+            component = Buffer(name, x, y, 100, 100)
+        else:
+            component = Component(name, x, y, inputs, outputs)
         self.components.append(component)
         self.draw_component(component)
 
