@@ -860,7 +860,7 @@ class ConnectorApp:
         while not self.stopCommand:
             for component in self.components:
                 component.update()
-            #self.redraw_connector()
+            self.redraw_connector()
             self.getPlotterData()
             self.plotter.updatePlot()
             iteratie += 1
