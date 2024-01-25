@@ -9,7 +9,8 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.animation as animation
 
-lastTime = time.time()
+dt = 1
+iteratie = 0
 
 def rgb_to_hex(color: tuple[int, int, int]):
     return '#{:02x}{:02x}{:02x}'.format(*color)
@@ -195,7 +196,7 @@ class SinusSignal(Component):
 
     def update(self):
         super().update()
-        self.logicOutput.value = math.sin(time.time() * 2 * math.pi / self.period)/2 + 0.5
+        self.logicOutput.value = math.cos(dt * iteratie * 2 * math.pi / self.period)/2 + 0.5
 
 class LogicClamp(Component):
     def __init__(self, name, x, y, min, max):
@@ -426,7 +427,7 @@ class Buffer(Component):
     def update(self):
         super().update()
         
-        VolumeIn = self.inputs[0].flowSpeed * (time.time() - lastTime)
+        VolumeIn = self.inputs[0].flowSpeed * dt * 3600
         self.temp = (VolumeIn * self.inputs[0].temp + self.temp * self.capacity) / (VolumeIn + self.capacity)
 
         self.outputs[0].temp = self.temp - calculateWarmteVerlies(self.temp)
@@ -853,14 +854,16 @@ class ConnectorApp:
                 self.plotter.addData(component.name, component.inputs[0].temp)
 
     def update(self):
+        global iteratie
         self.plotter.openPlotWindow()
+        iteratie = 0
         while not self.stopCommand:
             for component in self.components:
                 component.update()
-            self.redraw_connector()
-            lastTime = time.time()
+            #self.redraw_connector()
             self.getPlotterData()
             self.plotter.updatePlot()
+            iteratie += 1
             time.sleep(0.001)
         self.plotter.clearData()
         self.stopCommand = False
