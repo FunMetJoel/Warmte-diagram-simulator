@@ -4,12 +4,13 @@ import time
 from threading import Thread
 import math
 import pickle
+from typing import Any
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.animation as animation
 
-dt = 1
+dt = 0.5
 iteratie = 0
 
 def rgb_to_hex(color: tuple[int, int, int]):
@@ -173,6 +174,38 @@ def calculateWarmteVerlies(
 
 # Flow Code
 
+class RealisticSun(Component):
+    def __init__(self, name, x, y, wolkenKans):
+        self.wolkenKans = wolkenKans
+        super().__init__(
+            name, 
+            x, 
+            y,
+            logicInput=LogicConnector(),
+            logicOutput=LogicConnector()
+        )
+
+    def inspect(self) -> dict[str, str]:
+        return super().inspect({
+            "wolkenKans": self.wolkenKans
+        })
+            
+    def editVariable(self, varName, value):
+        if varName == "wolkenKans":
+            self.wolkenKans = float(value)
+        else:
+            super().editVariable(varName, value)
+
+    @staticmethod
+    def getSunPower(tijd, Datum):
+        return (1 - (math.cos(tijd * 2 * math.pi / 24) + 1) / ((1-Datum)*1.1 + 0.5)) * ((1 - Datum)*0.4 + 0.6)
+
+    def update(self):
+        super().update()
+
+        self.logicOutput.value = clamp( RealisticSun.getSunPower(dt * iteratie, self.logicInput.value), 0, 1)
+
+
 class SinusSignal(Component):
     def __init__(self, name, x, y, period):
         self.period = period
@@ -257,6 +290,7 @@ class Sensor(Component):
             y,
             inputs = [Connector("IN")],
             outputs=[Connector("OUT")],
+            logicInput=LogicConnector(),
             logicOutput=LogicConnector()
         )
 
@@ -278,7 +312,11 @@ class Sensor(Component):
 
         temp = self.inputs[0].temp
         flowSpeed = self.inputs[0].flowSpeed
-        output = eval(self.compareFunction, {"temp": temp, "flowSpeed": flowSpeed})
+        if self.logicInput is not None:
+            logicIn = self.logicInput.value
+        else:
+            logicIn = 0
+        output = eval(self.compareFunction, {"temp": temp, "flowSpeed": flowSpeed, "logicIn": logicIn})
         if output > 1:
             output = 1
         elif output < 0:
@@ -430,7 +468,7 @@ class Buffer(Component):
         VolumeIn = self.inputs[0].flowSpeed * dt * 3600
         self.temp = (VolumeIn * self.inputs[0].temp + self.temp * self.capacity) / (VolumeIn + self.capacity)
 
-        self.outputs[0].temp = self.temp - calculateWarmteVerlies(self.temp)
+        self.outputs[0].temp = min(self.temp - calculateWarmteVerlies(self.temp), self.maxTemp)
         self.outputs[0].flowSpeed = self.inputs[0].flowSpeed
 
 
@@ -469,6 +507,36 @@ class Splitter(Component):
             self.outputs[0].flowSpeed = self.inputs[0].flowSpeed * self.logicInput.value
             self.outputs[1].flowSpeed = self.inputs[0].flowSpeed * (1 - self.logicInput.value)
 
+class ProsessKiezer(Component):
+    def __init__(self, name, x, y):
+        super().__init__(
+            name, 
+            x, 
+            y,
+            inputs = [Connector("IN")],
+            outputs = [Connector("OUT1"), Connector("OUT2"), Connector("OUT3")],
+            logicInput=LogicConnector()
+        )
+
+    def update(self):
+        super().update()
+        outputTemp = self.inputs[0].temp - calculateWarmteVerlies(self.inputs[0].temp)
+        self.outputs[0].temp = outputTemp
+        self.outputs[1].temp = outputTemp
+        self.outputs[2].temp = outputTemp
+
+        if self.logicInput.connectedTo == []:
+            newFlowspeed = self.inputs[0].flowSpeed / 3
+            self.outputs[0].flowSpeed = newFlowspeed
+            self.outputs[1].flowSpeed = newFlowspeed
+            self.outputs[2].flowSpeed = newFlowspeed
+        else:
+            inputSpeed = self.inputs[0].flowSpeed
+            inputValue = self.logicInput.value
+            self.outputs[0].flowSpeed = max(0, inputSpeed * (-2 * inputValue + 1))
+            self.outputs[1].flowSpeed = max(0, inputSpeed * (1 - (2 * abs(inputValue - 0.5) )) )
+            self.outputs[2].flowSpeed = max(0, inputSpeed * (2 * inputValue - 1))
+
 class Merge(Component):
     def __init__(self, name, x, y):
         super().__init__(
@@ -486,9 +554,38 @@ class Merge(Component):
         temp1 = self.inputs[0].temp
         temp2 = self.inputs[1].temp
 
-        self.outputs[0].temp = (flowSpeed1 * temp1 + flowSpeed2 * temp2) / (flowSpeed1 + flowSpeed2)
-        self.outputs[0].temp = self.outputs[0].temp - calculateWarmteVerlies(self.outputs[0].temp)
-        self.outputs[0].flowSpeed = (self.inputs[0].flowSpeed + self.inputs[1].flowSpeed)
+        if (flowSpeed1 + flowSpeed2) != 0:
+            self.outputs[0].temp = (flowSpeed1 * temp1 + flowSpeed2 * temp2) / (flowSpeed1 + flowSpeed2)
+            self.outputs[0].temp = self.outputs[0].temp - calculateWarmteVerlies(self.outputs[0].temp)
+        else:
+            self.outputs[0].temp = 10
+        self.outputs[0].flowSpeed = (flowSpeed1 + flowSpeed2)
+
+class Collector(Component):
+    def __init__(self, name, x, y):
+        super().__init__(
+            name, 
+            x, 
+            y,
+            inputs = [Connector("IN1"), Connector("IN2"), Connector("IN3")],
+            outputs = [Connector("OUT")]
+        )
+
+    def update(self):
+        super().update()
+        flowSpeed1 = self.inputs[0].flowSpeed
+        flowSpeed2 = self.inputs[1].flowSpeed
+        flowSpeed3 = self.inputs[2].flowSpeed
+        temp1 = self.inputs[0].temp
+        temp2 = self.inputs[1].temp
+        temp3 = self.inputs[2].temp
+
+        if (flowSpeed1 + flowSpeed2 + flowSpeed3) != 0:
+            self.outputs[0].temp = (flowSpeed1 * temp1 + flowSpeed2 * temp2 + flowSpeed3 * temp3) / (flowSpeed1 + flowSpeed2 + flowSpeed3)
+            self.outputs[0].temp = self.outputs[0].temp - calculateWarmteVerlies(self.outputs[0].temp)
+        else:
+            self.outputs[0].temp = 10
+        self.outputs[0].flowSpeed = (flowSpeed1 + flowSpeed2 + flowSpeed3)
 
 # UI Code
 
@@ -526,11 +623,14 @@ class ConnectorApp:
 
         self.verdelingsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
         self.verdelingsMenu.add_command(label="Splitter", command=lambda: self.add_component("Splitter", 120, 70))
+        self.verdelingsMenu.add_command(label="ProsessKiezer", command=lambda: self.add_component("ProsessKiezer", 120, 70))
         self.verdelingsMenu.add_command(label="Merge", command=lambda: self.add_component("Merge", 120, 70))
+        self.verdelingsMenu.add_command(label="Collector", command=lambda: self.add_component("Collector", 120, 70))
         self.addComponentMenu.add_cascade(label="Verdeling", menu=self.verdelingsMenu)
 
         self.logicComponentsMenu = tk.Menu(self.addComponentMenu, tearoff=0)
         self.logicComponentsMenu.add_command(label="SinusSignal", command=lambda: self.add_component("SinusSignal", 120, 70))
+        self.logicComponentsMenu.add_command(label="RealisticSun", command=lambda: self.add_component("RealisticSun", 120, 70))
         self.logicComponentsMenu.add_command(label="LogicClamp", command=lambda: self.add_component("LogicClamp", 120, 70))
         self.logicComponentsMenu.add_command(label="LogicInverter", command=lambda: self.add_component("LogicInverter", 120, 70))
         self.logicComponentsMenu.add_command(label="Sensor", command=lambda: self.add_component("Sensor", 120, 70))
@@ -648,8 +748,12 @@ class ConnectorApp:
             component = Process(name, x, y, 100)
         elif name == "Splitter":
             component = Splitter(name, x, y, 0.5)
+        elif name == "ProsessKiezer":
+            component = ProsessKiezer(name, x, y)
         elif name == "SinusSignal":
             component = SinusSignal(name, x, y, 10)
+        elif name == "RealisticSun":
+            component = RealisticSun(name, x, y, 0.5)
         elif name == "LogicClamp":
             component = LogicClamp(name, x, y, 0, 1)
         elif name == "LogicInverter":
@@ -658,6 +762,8 @@ class ConnectorApp:
             component = Sensor(name, x, y, "temp / 100")
         elif name == "Merge":
             component = Merge(name, x, y)
+        elif name == "Collector":
+            component = Collector(name, x, y)
         elif name == "Buffer":
             component = Buffer(name, x, y, 100, 100)
         else:
@@ -864,7 +970,6 @@ class ConnectorApp:
             self.getPlotterData()
             self.plotter.updatePlot()
             iteratie += 1
-            time.sleep(0.001)
         self.plotter.clearData()
         self.stopCommand = False
 
